@@ -1,0 +1,19 @@
+<script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+<script>
+    const peer = new Peer();
+    
+    peer.on('open', (id) => {
+        console.log('Connecté');
+    });
+
+    function callPhone(phoneId) {
+        if(!phoneId) return;
+        const call = peer.call(phoneId, null); // Appel sans flux local
+        
+        call.on('stream', (remoteStream) => {
+            const video = document.createElement('video');
+            video.srcObject = remoteStream;
+            video.play();
+            document.body.appendChild(video);
+        });
+    }
