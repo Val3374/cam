@@ -1,24 +1,37 @@
-<script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
-<script>
-    const peer = new Peer();
-    
-    peer.on('open', (id) => {
-        console.log('Connecté');
-    });
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Test PeerJS</title>
+</head>
+<body>
 
-    function callPhone(phoneId) {
-        if(!phoneId) return;
-        const call = peer.call(phoneId, null); // Appel sans flux local
+    <!-- INTERFACE : À placer dans le body -->
+    <div>
+        <input type="text" id="targetId" placeholder="Entre l'ID du destinataire">
+        <button onclick="callPhone(document.getElementById('targetId').value)">Appeler</button>
+    </div>
+
+    <!-- SCRIPTS -->
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <script>
+        const peer = new Peer();
         
-        call.on('stream', (remoteStream) => {
-            const video = document.createElement('video');
-            video.srcObject = remoteStream;
-            video.play();
-            document.body.appendChild(video);
+        peer.on('open', (id) => {
+            console.log('Connecté. Mon ID est :', id);
         });
-    }
 
-    // Pour tester : tape l'ID du téléphone dans la console du navigateur
-    <input type="text" id="targetId" placeholder="Entre l'ID distant">
-    <button onclick="callPhone(document.getElementById('targetId').value)">Appeler</button>
-</script>
+        function callPhone(phoneId) {
+            if (!phoneId) return;
+            const call = peer.call(phoneId, null);
+            
+            call.on('stream', (remoteStream) => {
+                const video = document.createElement('video');
+                video.srcObject = remoteStream;
+                video.play();
+                document.body.appendChild(video);
+            });
+        }
+    </script>
+</body>
+</html>
