@@ -4,96 +4,114 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Caméra Espion</title>
-    <!-- Import PeerJS -->
+    <!-- Import de PeerJS (Gère le serveur de signalisation gratuit) -->
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; background: #111; color: #fff; }
-        video { width: 100%; max-width: 640px; background: #000; margin-top: 20px; }
-        input, button { padding: 10px; margin: 5px; font-size: 16px; }
-        #status { color: #00ff00; font-weight: bold; }
+        body { font-family: sans-serif; background: #111; color: white; text-align: center; padding: 20px; margin: 0; }
+        video { width: 100%; max-width: 500px; border: 2px solid #0f0; margin: 10px 0; background: black; }
+        button { padding: 15px; background: #007bff; color: white; border: none; border-radius: 5px; font-size: 16px; margin: 10px; cursor: pointer; }
+        input { padding: 10px; width: 80%; font-size: 16px; border-radius: 5px; border: 1px solid #555; }
+        .panel { border: 1px solid #444; padding: 15px; margin: 20px auto; max-width: 400px; border-radius: 10px; }
+        .hidden { display: none; }
+        #status { color: #aaa; font-size: 14px; margin-bottom: 10px; }
+        .copy-btn { background: #28a745; padding: 5px 10px; font-size: 12px; margin-left: 10px; }
     </style>
 </head>
 <body>
 
-    <h2>📹 Flux Caméra</h2>
-    <p>Mon ID : <span id="my-id" style="color:yellow">...</span></p>
-    
-    <div>
-        <input type="text" id="remote-id" placeholder="ID de la caméra distante">
-        <button onclick="callRemote()">Appeler</button>
-    </div>
-    <div id="status">En attente...</div>
+    <h1>📹 Flux Caméra à Distance</h1>
+    <div id="status">En attente de connexion...</div>
 
-    <!-- Vidéo locale (ce que voit l'émetteur) -->
-    <video id="local" autoplay muted playsinline></video>
-    <!-- Vidéo distante (ce que voit le récepteur) -->
-    <video id="remote" autoplay playsinline></video>
+    <!-- Zone Locale (Ce qu'on voit) -->
+    <video id="localVideo" autoplay muted playsinline></video>
+
+    <!-- Zone Distant (Ce qu'on reçoit) -->
+    <video id="remoteVideo" autoplay playsinline></video>
+
+    <div class="panel">
+        <h3>1. Ton ID Unique</h3>
+        <p>Cet ID reste le même tant que tu n'as pas vidé le cache.</p>
+        <input type="text" id="myId" readonly value="Chargement..." onclick="this.select()">
+        <button class="copy-btn" onclick="copyToClipboard('myId')">Copier ID</button>
+        <p style="font-size:12px; color:#888;">Donne cet ID à la personne qui veut te filmer.</p>
+    </div>
+
+    <div class="panel">
+        <h3>2. Se connecter à quelqu'un</h3>
+        <input type="text" id="targetId" placeholder="Colle l'ID de l'espion ici">
+        <button onclick="connectToRemote()">Se connecter</button>
+    </div>
 
     <script>
+        // 1. Initialisation PeerJS
         let peer;
         let localStream;
+        let myIdInput = document.getElementById('myId');
 
-        // 1. Initialisation de PeerJS
-        function init() {
-            // Crée un ID unique aléatoire pour cet appareil
-            peer = new Peer(null, {
-                debug: 2
-            });
+        // On génère un ID unique pour ce navigateur
+        // Note: PeerJS utilise un cloud gratuit. Si tu veux un vrai "permanent", 
+        // il faut définir un ID fixe ici : const peer = new Peer('mon-id-personnel');
+        peer = new Peer({
+            debug: 2
+        });
 
-            peer.on('open', (id) => {
-                document.getElementById('my-id').innerText = id;
-                document.getElementById('status').innerText = "Prêt. Partage ton ID.";
-            });
+        peer.on('open', (id) => {
+            myIdInput.value = id;
+            document.getElementById('status').innerText = "En ligne - ID: " + id;
+        });
 
-            // Quand quelqu'un nous appelle (Rôle : Émetteur/Caméra)
-            peer.on('call', (call) => {
-                // On répond avec notre flux local
-                navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-                    .then((stream) => {
-                        localStream = stream;
-                        document.getElementById('local').srcObject = stream;
-                        call.answer(stream); // Répondre à l'appel avec le flux
-
-                        // Quand on reçoit le flux de l'autre côté
-                        call.on('stream', (remoteStream) => {
-                            document.getElementById('remote').srcObject = remoteStream;
-                            document.getElementById('status').innerText = "Connexion établie !";
-                        });
-                    })
-                    .catch((err) => {
-                        console.error('Erreur caméra:', err);
-                        alert("Erreur accès caméra");
-                    });
-            });
-        }
-
-        // Fonction pour appeler un autre appareil (Rôle : Récepteur/Espion)
-        function callRemote() {
-            const remoteId = document.getElementById('remote-id').value;
-            if (!remoteId) return alert("Entrez un ID");
-
-            // On récupère notre propre flux (pour le montrer localement si besoin)
-            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-                .then((stream) => {
-                    localStream = stream;
-                    document.getElementById('local').srcObject = stream;
-                    
-                    // Appeler l'autre
-                    const call = peer.call(remoteId, stream);
-                    
-                    call.on('stream', (remoteStream) => {
-                        document.getElementById('remote').srcObject = remoteStream;
-                        document.getElementById('status').innerText = "Connexion établie !";
-                    });
-                    
-                    call.on('error', (err) => {
-                        console.error(err);
-                        alert("Échec de la connexion");
-                    });
+        // 2. Démarrer la caméra
+        async function startCamera() {
+            if (localStream) return;
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment" }, 
+                    audio: true 
                 });
+                document.getElementById('localVideo').srcObject = localStream;
+            } catch (err) {
+                alert("Erreur caméra : " + err);
+            }
         }
 
-        init();
+        // 3. Recevoir un appel (Quelqu'un te filme)
+        peer.on('call', async (call) => {
+            await startCamera();
+            // On envoie notre flux
+            call.answer(localStream); 
+            
+            // On écoute le flux reçu
+            call.on('stream', (remoteStream) => {
+                document.getElementById('remoteVideo').srcObject = remoteStream;
+                document.getElementById('status').innerText = "🔴 Connecté !";
+            });
+        });
+
+        // 4. Appeler quelqu'un (On veut le voir)
+        async function connectToRemote() {
+            const targetId = document.getElementById('targetId').value;
+            if (!targetId) return alert("Entrez un ID !");
+            
+            await startCamera();
+            
+            // Appel direct
+            const call = peer.call(targetId, localStream);
+            
+            call.on('stream', (remoteStream) => {
+                document.getElementById('remoteVideo').srcObject = remoteStream;
+                document.getElementById('status').innerText = "🔴 Connecté !";
+            });
+            
+            call.on('error', (err) => alert("Erreur connexion : " + err));
+        }
+
+        // Utilitaire pour copier
+        function copyToClipboard(id) {
+            const el = document.getElementById(id);
+            el.select();
+            document.execCommand("copy");
+            alert("Copié !");
+        }
     </script>
 </body>
 </html>
