@@ -3,88 +3,178 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Surveillance</title>
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <title>P2P Caméra Direct</title>
     <style>
-        body { background: #000; color: #fff; font-family: sans-serif; text-align: center; padding: 10px; }
-        #status { color: #0f0; font-size: 12px; margin-bottom: 5px; }
-        button { padding: 15px; width: 90%; margin: 5px 0; font-size: 16px; background: #007bff; color: white; border: none; border-radius: 5px; }
-        input { width: 90%; padding: 10px; margin: 5px 0; border-radius: 5px; border: 1px solid #555; }
+        body { font-family: system-ui, sans-serif; background: #111; color: #eee; text-align: center; padding: 10px; }
+        h2 { margin-top: 0; font-size: 1.5rem; }
+        .box { border: 1px solid #444; padding: 10px; margin: 10px 0; border-radius: 8px; background: #222; }
+        button { background: #007bff; color: white; border: none; padding: 12px 20px; margin: 5px; border-radius: 5px; font-size: 1rem; cursor: pointer; width: 90%; }
+        button:disabled { background: #555; }
+        textarea { width: 98%; height: 80px; background: #000; color: #0f0; border: 1px solid #444; margin: 5px 0; font-family: monospace; font-size: 0.8rem; }
+        video { width: 100%; max-width: 320px; background: #000; margin-top: 10px; border-radius: 5px; }
+        .step { font-weight: bold; color: #ff9900; margin-top: 15px; }
+        #status { color: #0ff; font-size: 0.9rem; min-height: 1.2em; }
         .hidden { display: none; }
-        video { width: 100%; max-width: 300px; }
     </style>
 </head>
 <body>
-    <h2>👁️ Espion</h2>
-    <div id="status">En attente...</div>
-    
-    <!-- Pour voir ce qu'on envoie (optionnel) -->
-    <video id="local" autoplay muted playsinline style="display:none"></video>
+    <h2>📹 Flux Direct P2P</h2>
+    <div id="status">Prêt</div>
 
-    <div id="controls">
-        <p>ID : <span id="myId">Chargement...</span></p>
-        <button onclick="copyId()">Copier mon ID</button>
-        <hr>
-        <input type="text" id="targetId" placeholder="ID de l'espion à joindre">
-        <button onclick="connect()">Se connecter à l'espion</button>
+    <div class="box">
+        <video id="local" autoplay muted playsinline></video>
+        <div class="step">1. MA CAMÉRA (Émetteur)</div>
+        <button id="btnStart" onclick="startCamera()">Activer la caméra</button>
+        <button id="btnCreateOffer" onclick="createOffer()" disabled>Créer l'Offre</button>
+        <textarea id="txtOffer" placeholder="L'offre apparaîtra ici..." readonly onclick="this.select()"></textarea>
+        <button onclick="copyToClipboard('txtOffer')">Copier l'offre</button>
+    </div>
+
+    <div class="box">
+        <div class="step">2. RÉCEPTION (Récepteur)</div>
+        <textarea id="txtRemoteAnswer" placeholder="Colle l'offre ici d'abord, puis clique 'Répondre'"></textarea>
+        <button onclick="processAnswer()">Répondre</button>
+        <textarea id="txtMyAnswer" placeholder="La réponse apparaîtra ici..." readonly onclick="this.select()"></textarea>
+        <button onclick="copyToClipboard('txtMyAnswer')">Copier la réponse</button>
+    </div>
+
+    <div class="box">
+        <div class="step">3. FINALISER (Émetteur)</div>
+        <textarea id="txtFinalAnswer" placeholder="Colle la réponse du récepteur ici" onclick="this.select()"></textarea>
+        <button onclick="connectFinal()">Connecter le flux</button>
+    </div>
+
+    <div class="box">
+        <video id="remote" autoplay playsinline></video>
+        <div id="remoteLabel" class="hidden">Flux distant actif</div>
     </div>
 
     <script>
-        // Configuration
-        const peer = new Peer({ debug: 0 });
+        // Configuration STUN (Public Google - le plus fiable)
+        const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+        
         let localStream;
-        let call;
+        let pc;
+        let isHost = true; // false = récepteur
 
-        peer.on('open', (id) => {
-            document.getElementById('myId').innerText = id;
-            document.getElementById('status').innerText = "En ligne";
-            // On garde le flux vivant
-            startCamera();
-        });
+        const localVideo = document.getElementById('local');
+        const remoteVideo = document.getElementById('remote');
+        const status = document.getElementById('status');
 
         async function startCamera() {
-            if (localStream) return;
             try {
+                // 'environment' = caméra arrière sur mobile
                 localStream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } }, 
+                    video: { facingMode: "environment", width: {ideal: 640}, height: {ideal: 480} }, 
                     audio: true 
                 });
-                document.getElementById('local').srcObject = localStream;
-                return true;
+                localVideo.srcObject = localStream;
+                document.getElementById('btnStart').innerText = "Caméra active ✅";
+                document.getElementById('btnCreateOffer').disabled = false;
+                status.innerText = "Caméra prête. Génère l'offre.";
             } catch (e) {
-                alert("Erreur caméra");
-                return false;
+                alert("Erreur caméra: " + e.message);
+                status.innerText = "Erreur caméra";
             }
         }
 
-        peer.on('call', async (incomingCall) => {
-            const camOk = await startCamera();
-            if(camOk) {
-                incomingCall.answer(localStream);
-                incomingCall.on('stream', (stream) => {
-                    // On pourrait afficher la vidéo reçue ici si on veut
-                });
-                document.getElementById('status').innerText = "Appel en cours...";
-            }
-        });
-
-        async function connect() {
-            const target = document.getElementById('targetId').value;
-            if(!target) return;
+        function createPeerConnection() {
+            pc = new RTCPeerConnection(config);
             
-            const camOk = await startCamera();
-            if(camOk) {
-                call = peer.call(target, localStream);
-                call.on('close', () => {
-                    document.getElementById('status').innerText = "Déconnecté";
-                });
+            // Ajouter le flux local
+            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+            // Quand on reçoit un flux distant
+            pc.ontrack = (event) => {
+                remoteVideo.srcObject = event.streams[0];
+                document.getElementById('remoteLabel').classList.remove('hidden');
+                status.innerText = "Connexion établie ! 🟢";
+            };
+
+            // Gestion des candidates ICE (nécessaire pour le P2P)
+            pc.onicecandidate = (event) => {
+                // Si c'est la fin de la génération
+                if (event.candidate === null) {
+                    if (pc.signalingState === "stable") return;
+                    
+                    // Si on est host et qu'on a fini de créer l'offre
+                    if (isHost && !document.getElementById('txtOffer').value) {
+                        document.getElementById('txtOffer').value = JSON.stringify(pc.localDescription);
+                        status.innerText = "Offre prête. Copie-la !";
+                    }
+                    // Si on est guest et qu'on a fini de répondre
+                    if (!isHost) {
+                        document.getElementById('txtMyAnswer').value = JSON.stringify(pc.localDescription);
+                        status.innerText = "Réponse prête. Renvoie-la à l'hôte !";
+                    }
+                }
+            };
+
+            return pc;
+        }
+
+        async function createOffer() {
+            if (!localStream) return;
+            isHost = true;
+            createPeerConnection();
+            
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            
+            // Petit délai pour laisser WebRTC collecter les candidates ICE
+            setTimeout(() => {
+                if (!document.getElementById('txtOffer').value) {
+                    document.getElementById('txtOffer').value = JSON.stringify(pc.localDescription);
+                    status.innerText = "Offre générée. Envoie-la au récepteur.";
+                }
+            }, 1500);
+        }
+
+        async function processAnswer() {
+            const offerText = document.getElementById('txtRemoteAnswer').value.trim();
+            if (!offerText) return alert("Colle l'offre d'abord !");
+            
+            isHost = false;
+            createPeerConnection();
+
+            try {
+                const offerDesc = JSON.parse(offerText);
+                await pc.setRemoteDescription(new RTCSessionDescription(offerDesc));
+                
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+
+                // Délai pour la réponse
+                setTimeout(() => {
+                    if (!document.getElementById('txtMyAnswer').value) {
+                        document.getElementById('txtMyAnswer').value = JSON.stringify(pc.localDescription);
+                        status.innerText = "Réponse générée. Renvoie-la à l'émetteur.";
+                    }
+                }, 1500);
+
+            } catch (e) {
+                alert("Erreur : L'offre collée est invalide.");
             }
         }
 
-        function copyId() {
-            const id = document.getElementById('myId').innerText;
-            navigator.clipboard.writeText(id);
-            alert("ID copié !");
+        async function connectFinal() {
+            const answerText = document.getElementById('txtFinalAnswer').value.trim();
+            if (!answerText) return alert("Colle la réponse d'abord !");
+
+            try {
+                const answerDesc = JSON.parse(answerText);
+                await pc.setRemoteDescription(new RTCSessionDescription(answerDesc));
+                status.innerText = "Connexion en cours...";
+            } catch (e) {
+                alert("Erreur lors de la connexion.");
+            }
+        }
+
+        function copyToClipboard(id) {
+            const el = document.getElementById(id);
+            el.select();
+            document.execCommand("copy");
+            alert("Copié ! Envoie-le au partenaire.");
         }
     </script>
 </body>
