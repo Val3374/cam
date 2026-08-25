@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Caméra</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background: #111;
+            color: white;
+            padding: 30px;
+        }
+
+        video {
+            width: 90%;
+            max-width: 700px;
+            border-radius: 12px;
+            background: black;
+        }
+
+        button {
+            margin-top: 20px;
+            padding: 12px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        #status {
+            margin-top: 15px;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>Caméra</h1>
+
+<video id="preview" autoplay muted playsinline></video>
+
+<br>
+
+<button id="start">Activer la caméra</button>
+
+<p id="status">Caméra inactive</p>
+
+<script>
+const video = document.getElementById("preview");
+const button = document.getElementById("start");
+const status = document.getElementById("status");
+
+let stream = null;
+
+button.addEventListener("click", async () => {
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+        });
+
+        video.srcObject = stream;
+
+        status.textContent = "Caméra active";
+
+    } catch (error) {
+        console.error(error);
+        status.textContent = "Accès à la caméra refusé";
+    }
+});
+</script>
+
+</body>
+</html>
