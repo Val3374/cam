@@ -2,36 +2,98 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Test PeerJS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Caméra Espion</title>
+    <!-- Import PeerJS -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #111; color: #fff; }
+        video { width: 100%; max-width: 640px; background: #000; margin-top: 20px; }
+        input, button { padding: 10px; margin: 5px; font-size: 16px; }
+        #status { color: #00ff00; font-weight: bold; }
+    </style>
 </head>
 <body>
 
-    <!-- INTERFACE : À placer dans le body -->
+    <h2>📹 Flux Caméra</h2>
+    <p>Mon ID : <span id="my-id" style="color:yellow">...</span></p>
+    
     <div>
-        <input type="text" id="targetId" placeholder="Entre l'ID du destinataire">
-        <button onclick="callPhone(document.getElementById('targetId').value)">Appeler</button>
+        <input type="text" id="remote-id" placeholder="ID de la caméra distante">
+        <button onclick="callRemote()">Appeler</button>
     </div>
+    <div id="status">En attente...</div>
 
-    <!-- SCRIPTS -->
-    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <!-- Vidéo locale (ce que voit l'émetteur) -->
+    <video id="local" autoplay muted playsinline></video>
+    <!-- Vidéo distante (ce que voit le récepteur) -->
+    <video id="remote" autoplay playsinline></video>
+
     <script>
-        const peer = new Peer();
-        
-        peer.on('open', (id) => {
-            console.log('Connecté. Mon ID est :', id);
-        });
+        let peer;
+        let localStream;
 
-        function callPhone(phoneId) {
-            if (!phoneId) return;
-            const call = peer.call(phoneId, null);
-            
-            call.on('stream', (remoteStream) => {
-                const video = document.createElement('video');
-                video.srcObject = remoteStream;
-                video.play();
-                document.body.appendChild(video);
+        // 1. Initialisation de PeerJS
+        function init() {
+            // Crée un ID unique aléatoire pour cet appareil
+            peer = new Peer(null, {
+                debug: 2
+            });
+
+            peer.on('open', (id) => {
+                document.getElementById('my-id').innerText = id;
+                document.getElementById('status').innerText = "Prêt. Partage ton ID.";
+            });
+
+            // Quand quelqu'un nous appelle (Rôle : Émetteur/Caméra)
+            peer.on('call', (call) => {
+                // On répond avec notre flux local
+                navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+                    .then((stream) => {
+                        localStream = stream;
+                        document.getElementById('local').srcObject = stream;
+                        call.answer(stream); // Répondre à l'appel avec le flux
+
+                        // Quand on reçoit le flux de l'autre côté
+                        call.on('stream', (remoteStream) => {
+                            document.getElementById('remote').srcObject = remoteStream;
+                            document.getElementById('status').innerText = "Connexion établie !";
+                        });
+                    })
+                    .catch((err) => {
+                        console.error('Erreur caméra:', err);
+                        alert("Erreur accès caméra");
+                    });
             });
         }
+
+        // Fonction pour appeler un autre appareil (Rôle : Récepteur/Espion)
+        function callRemote() {
+            const remoteId = document.getElementById('remote-id').value;
+            if (!remoteId) return alert("Entrez un ID");
+
+            // On récupère notre propre flux (pour le montrer localement si besoin)
+            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+                .then((stream) => {
+                    localStream = stream;
+                    document.getElementById('local').srcObject = stream;
+                    
+                    // Appeler l'autre
+                    const call = peer.call(remoteId, stream);
+                    
+                    call.on('stream', (remoteStream) => {
+                        document.getElementById('remote').srcObject = remoteStream;
+                        document.getElementById('status').innerText = "Connexion établie !";
+                    });
+                    
+                    call.on('error', (err) => {
+                        console.error(err);
+                        alert("Échec de la connexion");
+                    });
+                });
+        }
+
+        init();
     </script>
 </body>
 </html>
