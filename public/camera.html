@@ -3,40 +3,50 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
     <title>Caméra</title>
 
     <style>
         body {
-            font-family: Arial, sans-serif;
-            text-align: center;
+            margin: 0;
             background: #111;
             color: white;
-            padding: 30px;
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+
+        header {
+            padding: 20px;
         }
 
         video {
             width: 90%;
-            max-width: 700px;
+            max-width: 900px;
             border-radius: 12px;
             background: black;
         }
 
         button {
-            margin-top: 20px;
-            padding: 12px 20px;
+            padding: 14px 25px;
+            margin: 20px;
             font-size: 16px;
+            border: 0;
+            border-radius: 8px;
             cursor: pointer;
         }
 
         #status {
-            margin-top: 15px;
+            font-weight: bold;
         }
     </style>
 </head>
 
 <body>
 
-<h1>Caméra</h1>
+<header>
+    <h1>Caméra</h1>
+    <p id="status">Connexion au serveur...</p>
+</header>
 
 <video id="preview" autoplay muted playsinline></video>
 
@@ -44,31 +54,117 @@
 
 <button id="start">Activer la caméra</button>
 
-<p id="status">Caméra inactive</p>
-
 <script>
 const video = document.getElementById("preview");
 const button = document.getElementById("start");
 const status = document.getElementById("status");
 
-let stream = null;
+let socket;
+let stream;
+let peerConnection;
+
+const configuration = {
+    iceServers: [
+        {
+            urls: "stun:stun.l.google.com:19302"
+        }
+    ]
+};
+
+function connectWebSocket() {
+    socket = new WebSocket(
+        `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`
+    );
+
+    socket.onopen = () => {
+        status.textContent = "Serveur connecté";
+        
+        socket.send(JSON.stringify({
+            type: "camera"
+        }));
+    };
+
+    socket.onclose = () => {
+        status.textContent = "Serveur déconnecté";
+    };
+
+    socket.onmessage = async (event) => {
+        const message = JSON.parse(event.data);
+
+        if (message.type === "viewer-connected") {
+            await createPeerConnection();
+        }
+
+        if (message.type === "answer") {
+            await peerConnection.setRemoteDescription(
+                new RTCSessionDescription(message.answer)
+            );
+        }
+
+        if (message.type === "ice") {
+            try {
+                await peerConnection.addIceCandidate(
+                    new RTCIceCandidate(message.candidate)
+                );
+            } catch (error) {
+                console.error(error);
+            }
+        }
+    };
+}
+
+async function createPeerConnection() {
+    peerConnection = new RTCPeerConnection(configuration);
+
+    stream.getTracks().forEach(track => {
+        peerConnection.addTrack(track, stream);
+    });
+
+    peerConnection.onicecandidate = event => {
+        if (event.candidate) {
+            socket.send(JSON.stringify({
+                type: "ice",
+                target: "viewer",
+                candidate: event.candidate
+            }));
+        }
+    };
+
+    const offer = await peerConnection.createOffer();
+
+    await peerConnection.setLocalDescription(offer);
+
+    socket.send(JSON.stringify({
+        type: "offer",
+        offer: peerConnection.localDescription
+    }));
+}
 
 button.addEventListener("click", async () => {
     try {
         stream = await navigator.mediaDevices.getUserMedia({
-            video: true,
+            video: {
+                facingMode: "environment"
+            },
             audio: false
         });
 
         video.srcObject = stream;
 
-        status.textContent = "Caméra active";
+        status.textContent = "Caméra active — diffusion en cours";
+
+        button.disabled = true;
+        button.textContent = "Caméra activée";
 
     } catch (error) {
         console.error(error);
-        status.textContent = "Accès à la caméra refusé";
+
+        status.textContent =
+            "Impossible d'accéder à la caméra : " + error.message;
     }
 });
+
+connectWebSocket();
 </script>
 
 </body>
