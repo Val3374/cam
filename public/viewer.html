@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Visionneuse</title>
+
+    <style>
+        body {
+            margin: 0;
+            background: #111;
+            color: white;
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+
+        header {
+            padding: 20px;
+        }
+
+        video {
+            width: 90%;
+            max-width: 1000px;
+            background: black;
+            border-radius: 12px;
+        }
+
+        #status {
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h1>Visionneuse</h1>
+    <p id="status">Connexion au serveur...</p>
+</header>
+
+<video id="remoteVideo" autoplay playsinline controls></video>
+
+<script>
+const video = document.getElementById("remoteVideo");
+const status = document.getElementById("status");
+
+let socket;
+let peerConnection;
+
+const configuration = {
+    iceServers: [
+        {
+            urls: "stun:stun.l.google.com:19302"
+        }
+    ]
+};
+
+function connectWebSocket() {
+    socket = new WebSocket(
+        `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`
+    );
+
+    socket.onopen = () => {
+        status.textContent = "Recherche de la caméra...";
+
+        socket.send(JSON.stringify({
+            type: "viewer"
+        }));
+    };
+
+    socket.onclose = () => {
+        status.textContent = "Serveur déconnecté";
+    };
+
+    socket.onmessage = async (event) => {
+        const message = JSON.parse(event.data);
+
+        if (message.type === "camera-online") {
+            status.textContent = "Caméra disponible";
+        }
+
+        if (message.type === "camera-offline") {
+            status.textContent = "Caméra hors ligne";
+            video.srcObject = null;
+        }
+
+        if (message.type === "offer") {
+            await handleOffer(message.offer);
+        }
+
+        if (message.type === "ice") {
+            try {
+                await peerConnection.addIceCandidate(
+                    new RTCIceCandidate(message.candidate)
+                );
+            } catch (error) {
+                console.error(error);
+            }
+        }
+    };
+}
+
+async function handleOffer(offer) {
+    peerConnection = new RTCPeerConnection(configuration);
+
+    peerConnection.ontrack = event => {
+        if (event.streams && event.streams[0]) {
+            video.srcObject = event.streams[0];
+            status.textContent = "Flux vidéo reçu";
+        }
+    };
+
+    peerConnection.onicecandidate = event => {
+        if (event.candidate) {
+            socket.send(JSON.stringify({
+                type: "ice",
+                target: "camera",
+                candidate: event.candidate
+            }));
+        }
+    };
+
+    await peerConnection.setRemoteDescription(
+        new RTCSessionDescription(offer)
+    );
+
+    const answer = await peerConnection.createAnswer();
+
+    await peerConnection.setLocalDescription(answer);
+
+    socket.send(JSON.stringify({
+        type: "answer",
+        answer: peerConnection.localDescription
+    }));
+}
+
+connectWebSocket();
+</script>
+
+</body>
+</html>
